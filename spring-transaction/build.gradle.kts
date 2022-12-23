@@ -29,6 +29,7 @@ dependencies {
     testImplementation("junit", "junit", "4.12")
     testImplementation("org.hamcrest", "hamcrest-library", "1.3")
     testImplementation("com.h2database", "h2", Versions.h2)
+    implementation("net.sf.jt400", "jt400", Versions.as400db2)
 }
 
 tasks.withType<Test>().configureEach {

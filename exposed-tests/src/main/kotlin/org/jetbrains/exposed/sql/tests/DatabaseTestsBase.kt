@@ -103,10 +103,10 @@ enum class TestDB(
 
     DB2(
         connection = {
-            "jdbc:db2://${System.getProperty("exposed.test.db2.host", "localhost")}" +
+            "jdbc:as400://${System.getProperty("exposed.test.db2.host", "localhost")}" +
                     ":${System.getProperty("exposed.test.db2.port", "50000")}/testdb"
         },
-        driver = "com.ibm.db2.jcc.DB2Driver",
+        driver = "com.ibm.as400.access.AS400JDBCDriver",
         user = "inst",
         pass = "yourStrong(!)Password",
         beforeConnection = {
@@ -118,7 +118,7 @@ enum class TestDB(
                 if (!dbInitialized) {
                     transaction(Connection.TRANSACTION_READ_COMMITTED, 1, tmp) {
                         try {
-                            exec("SELECT 1 FROM SYSIBM.SYSDUMMY1;")
+                            exec("SELECT 1 FROM SYSIBM.SYSDUMMY1")
                             dbInitialized = true
                         } catch (e: Exception) {
                             if (it < 9)

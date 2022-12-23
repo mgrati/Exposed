@@ -69,6 +69,7 @@ class DBTestingPlugin : Plugin<Project> {
 
             val db2 = register<DBTest>("db2Test", "db2") {
                 testRuntimeOnly("com.ibm.db2", "jcc", Versions.db2)
+                testRuntimeOnly("net.sf.jt400", "jt400", Versions.as400db2)
             }
 
             named<Test>("test") {

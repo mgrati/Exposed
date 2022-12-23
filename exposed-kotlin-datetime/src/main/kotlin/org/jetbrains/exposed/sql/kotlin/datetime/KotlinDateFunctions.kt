@@ -31,7 +31,7 @@ object CurrentDateTime : Function<LocalDateTime>(KotlinLocalDateTimeColumnType.I
     override fun toQueryBuilder(queryBuilder: QueryBuilder) = queryBuilder {
         +when {
             (currentDialect as? MysqlDialect)?.isFractionDateTimeSupported() == true -> "CURRENT_TIMESTAMP(6)"
-            else -> "CURRENT_TIMESTAMP"
+            else -> "CURRENT TIMESTAMP"
         }
     }
 
@@ -43,7 +43,7 @@ class CurrentTimestamp<T> : Expression<T>() {
     override fun toQueryBuilder(queryBuilder: QueryBuilder) = queryBuilder {
         +when {
             (currentDialect as? MysqlDialect)?.isFractionDateTimeSupported() == true -> "CURRENT_TIMESTAMP(6)"
-            else -> "CURRENT_TIMESTAMP"
+            else -> "CURRENT TIMESTAMP"
         }
     }
 }

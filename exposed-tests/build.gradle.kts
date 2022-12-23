@@ -31,6 +31,7 @@ dependencies {
     implementation("com.opentable.components", "otj-pg-embedded", Versions.otjPgEmbedded)
     testCompileOnly("org.postgresql", "postgresql", Versions.postgre)
     testCompileOnly("com.impossibl.pgjdbc-ng", "pgjdbc-ng", Versions.postgreNG)
+    implementation("net.sf.jt400", "jt400", Versions.as400db2)
     compileOnly("com.h2database", "h2", Versions.h2)
     testCompileOnly("org.xerial", "sqlite-jdbc", Versions.sqlLite3)
 }

@@ -14,7 +14,7 @@ object CurrentDateTime : Function<DateTime>(DateColumnType(false)) {
     override fun toQueryBuilder(queryBuilder: QueryBuilder) = queryBuilder {
         +when {
             (currentDialect as? MysqlDialect)?.isFractionDateTimeSupported() == true -> "CURRENT_TIMESTAMP(6)"
-            else -> "CURRENT_TIMESTAMP"
+            else -> "CURRENT TIMESTAMP"
         }
     }
 

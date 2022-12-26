@@ -2,7 +2,6 @@ package org.jetbrains.exposed.sql.javatime
 
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.Function
-import org.jetbrains.exposed.sql.vendors.DB2Dialect
 import org.jetbrains.exposed.sql.vendors.MysqlDialect
 import org.jetbrains.exposed.sql.vendors.currentDialect
 import java.time.Duration
@@ -24,7 +23,7 @@ object CurrentDateTime : Function<LocalDateTime>(JavaLocalDateTimeColumnType.INS
     override fun toQueryBuilder(queryBuilder: QueryBuilder) = queryBuilder {
         +when {
             (currentDialect as? MysqlDialect)?.isFractionDateTimeSupported() == true -> "CURRENT_TIMESTAMP(6)"
-            else -> "CURRENT TIMESTAMP"
+            else -> "CURRENT_TIMESTAMP"
         }
     }
 
@@ -36,7 +35,7 @@ class CurrentTimestamp<T : Temporal> : Expression<T>() {
     override fun toQueryBuilder(queryBuilder: QueryBuilder) = queryBuilder {
         +when {
             (currentDialect as? MysqlDialect)?.isFractionDateTimeSupported() == true -> "CURRENT_TIMESTAMP(6)"
-            else -> "CURRENT TIMESTAMP"
+            else -> "CURRENT_TIMESTAMP"
         }
     }
 }

@@ -16,6 +16,7 @@ dependencies {
     api("org.springframework", "spring-jdbc", Versions.springFramework)
     api("org.springframework", "spring-context", Versions.springFramework)
     implementation("org.jetbrains.kotlinx", "kotlinx-coroutines-core", Versions.kotlinCoroutines)
+    implementation("net.sf.jt400", "jt400", Versions.as400db2)
 
     testImplementation(project(":exposed-dao"))
     testImplementation(project(":exposed-tests"))
@@ -29,7 +30,6 @@ dependencies {
     testImplementation("junit", "junit", "4.12")
     testImplementation("org.hamcrest", "hamcrest-library", "1.3")
     testImplementation("com.h2database", "h2", Versions.h2)
-    implementation("net.sf.jt400", "jt400", Versions.as400db2)
 }
 
 tasks.withType<Test>().configureEach {

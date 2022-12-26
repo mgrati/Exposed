@@ -21,6 +21,7 @@ dependencies {
     testImplementation("org.springframework.boot", "spring-boot-starter-test", Versions.springBoot)
     testImplementation("org.springframework.boot", "spring-boot-starter-webflux", Versions.springBoot) // put in testImplementation so no hard dependency for those using the starter
     testImplementation("com.h2database", "h2", Versions.h2)
+    implementation("net.sf.jt400", "jt400", Versions.as400db2)
 }
 
 tasks.withType<Test>().configureEach {

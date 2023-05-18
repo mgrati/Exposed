@@ -19,7 +19,6 @@ object Versions {
     const val sqlLite3 = "3.36.0.3"
     const val sqlserver = "8.4.1.jre8"
     const val db2 = "11.5.7.0"
-    const val as400db2 = "8.7"
 
     /** Spring **/
     const val springFramework = "5.3.13"

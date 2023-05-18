@@ -9,7 +9,6 @@ dependencies {
     implementation("com.avast.gradle", "gradle-docker-compose-plugin", "0.14.9")
     implementation("io.github.gradle-nexus", "publish-plugin", "1.0.0")
     implementation("io.gitlab.arturbosch.detekt", "detekt-gradle-plugin", "1.19.0")
-    implementation("net.sf.jt400", "jt400", "8.7")
 }
 
 plugins {

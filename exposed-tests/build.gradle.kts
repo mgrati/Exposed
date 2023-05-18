@@ -26,6 +26,7 @@ dependencies {
     implementation("junit", "junit", "4.12")
     implementation("org.hamcrest", "hamcrest-library", "1.3")
     implementation("org.jetbrains.kotlinx", "kotlinx-coroutines-debug", Versions.kotlinCoroutines)
+    implementation("net.sf.jt400", "jt400", Versions.as400db2)
 
     implementation("org.testcontainers", "mysql", Versions.testContainers)
     implementation("com.opentable.components", "otj-pg-embedded", Versions.otjPgEmbedded)

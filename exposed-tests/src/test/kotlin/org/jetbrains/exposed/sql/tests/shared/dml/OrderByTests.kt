@@ -6,14 +6,17 @@ import org.jetbrains.exposed.sql.tests.TestDB
 import org.jetbrains.exposed.sql.tests.currentDialectTest
 import org.jetbrains.exposed.sql.tests.shared.assertEquals
 import org.jetbrains.exposed.sql.vendors.DB2Dialect
+import org.jetbrains.exposed.sql.vendors.H2Dialect
+import org.jetbrains.exposed.sql.vendors.H2Dialect.H2CompatibilityMode
 import org.jetbrains.exposed.sql.vendors.OracleDialect
 import org.jetbrains.exposed.sql.vendors.PostgreSQLDialect
+import org.jetbrains.exposed.sql.vendors.h2Mode
 import org.junit.Test
 
 class OrderByTests : DatabaseTestsBase() {
     @Test
     fun orderBy01() {
-        withCitiesAndUsers { cities, users, userData ->
+        withCitiesAndUsers { _, users, _ ->
             val r = users.selectAll().orderBy(users.id).toList()
             assertEquals(5, r.size)
             assertEquals("alex", r[0][users.id])
@@ -26,6 +29,7 @@ class OrderByTests : DatabaseTestsBase() {
 
     private fun isNullFirst() = when (currentDialectTest) {
         is OracleDialect, is PostgreSQLDialect, is DB2Dialect -> true
+        is H2Dialect -> currentDialectTest.h2Mode in listOf(H2CompatibilityMode.PostgreSQL, H2CompatibilityMode.Oracle)
         else -> false
     }
 
@@ -46,7 +50,7 @@ class OrderByTests : DatabaseTestsBase() {
 
     @Test
     fun orderBy03() {
-        withCitiesAndUsers { cities, users, userData ->
+        withCitiesAndUsers { _, users, _ ->
             val r = users.selectAll().orderBy(users.cityId to SortOrder.DESC, users.id to SortOrder.ASC).toList()
             assertEquals(5, r.size)
             val usersWithoutCities = listOf("alex", "smth")
@@ -61,7 +65,7 @@ class OrderByTests : DatabaseTestsBase() {
 
     @Test
     fun testOrderBy04() {
-        withCitiesAndUsers { cities, users, userData ->
+        withCitiesAndUsers { cities, users, _ ->
             val r = (cities innerJoin users).slice(cities.name, users.id.count()).selectAll().groupBy(cities.name).orderBy(cities.name).toList()
             assertEquals(2, r.size)
             assertEquals("Munich", r[0][cities.name])
@@ -73,7 +77,7 @@ class OrderByTests : DatabaseTestsBase() {
 
     @Test
     fun orderBy05() {
-        withCitiesAndUsers { cities, users, userData ->
+        withCitiesAndUsers { _, users, _ ->
             val r = users.selectAll().orderBy(users.cityId to SortOrder.DESC, users.id to SortOrder.ASC).toList()
             assertEquals(5, r.size)
             val usersWithoutCities = listOf("alex", "smth")
@@ -88,7 +92,7 @@ class OrderByTests : DatabaseTestsBase() {
 
     @Test
     fun orderBy06() {
-        withCitiesAndUsers { cities, users, userData ->
+        withCitiesAndUsers { _, users, _ ->
             val orderByExpression = users.id.substring(2, 1)
             val r = users.selectAll().orderBy(orderByExpression to SortOrder.ASC).toList()
             assertEquals(5, r.size)
@@ -102,7 +106,7 @@ class OrderByTests : DatabaseTestsBase() {
 
     @Test
     fun testOrderByExpressions() {
-        withCitiesAndUsers { cities, users, userData ->
+        withCitiesAndUsers { cities, users, _ ->
             val expression = wrapAsExpression<Int>(
                 users
                     .slice(users.id.count())

@@ -24,7 +24,7 @@ class DBTestingPlugin : Plugin<Project> {
             val h2_v1 = register<DBTest>("h2_v1Test", "H2,H2_MYSQL") {
                 testRuntimeOnly("com.h2database", "h2", Versions.h2)
             }
-            val h2_v2 = register<DBTest>("h2_v2Test", "H2,H2_MYSQL") {
+            val h2_v2 = register<DBTest>("h2_v2Test", "H2,H2_MYSQL,H2_PSQL,H2_MARIADB,H2_ORACLE,H2_SQLSERVER") {
                 testRuntimeOnly("com.h2database", "h2", Versions.h2_v2)
             }
             val h2 = register<Test>("h2Test") {
@@ -63,8 +63,17 @@ class DBTestingPlugin : Plugin<Project> {
                 testRuntimeOnly("com.microsoft.sqlserver", "mssql-jdbc", Versions.sqlserver)
             }
 
-            val mariadb = register<DBTestWithDockerCompose>("mariadbTest", Parameters("MARIADB", 3306)) {
-                testRuntimeOnly("org.mariadb.jdbc", "mariadb-java-client", Versions.mariaDB)
+            val mariadb_v2 = register<DBTestWithDockerCompose>("mariadb_v2Test", Parameters("MARIADB", 3306)) {
+                testRuntimeOnly("org.mariadb.jdbc", "mariadb-java-client", Versions.mariaDB_v2)
+            }
+
+            val mariadb_v3 = register<DBTestWithDockerCompose>("mariadb_v3Test", Parameters("MARIADB", 3306)) {
+                testRuntimeOnly("org.mariadb.jdbc", "mariadb-java-client", Versions.mariaDB_v3)
+            }
+
+            val mariadb = register<Test>("mariadbTest") {
+                group = "verification"
+                delegatedTo(mariadb_v2, mariadb_v3)
             }
 
             val db2 = register<DBTest>("db2Test", "jt400") {

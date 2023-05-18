@@ -254,7 +254,8 @@ class UnionTests : DatabaseTestsBase() {
             unionAlias.map { Triple(it[users.id], it[exp1a], it[exp2a]) }.apply {
                 assertEqualLists(
                     this.sortedBy { it.toString() },
-                    listOf(Triple("andrey", 10, "aaa"), Triple("andrey", 100, "bbb")))
+                    listOf(Triple("andrey", 10, "aaa"), Triple("andrey", 100, "bbb"))
+                )
             }
         }
     }
@@ -272,7 +273,8 @@ class UnionTests : DatabaseTestsBase() {
             unionAlias.selectAll().map { Triple(it[unionAlias[users.id]], it[unionAlias[exp1a]], it[unionAlias[exp2a]]) }.apply {
                 assertEqualLists(
                     this.sortedBy { it.toString() },
-                    listOf(Triple("andrey", 10, "aaa"), Triple("andrey", 100, "bbb")))
+                    listOf(Triple("andrey", 10, "aaa"), Triple("andrey", 100, "bbb"))
+                )
             }
         }
     }

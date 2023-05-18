@@ -1,15 +1,19 @@
 package org.jetbrains.exposed.sql.tests
 
-import com.opentable.db.postgres.embedded.EmbeddedPostgres
 import org.h2.engine.Mode
 import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.statements.StatementInterceptor
 import org.jetbrains.exposed.sql.transactions.inTopLevelTransaction
+import org.jetbrains.exposed.sql.transactions.nullableTransactionScope
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.transactions.transactionManager
 import org.junit.Assume
 import org.junit.AssumptionViolatedException
 import org.testcontainers.containers.MySQLContainer
+import org.testcontainers.containers.PostgreSQLContainer
 import java.sql.Connection
+import java.sql.SQLException
+import java.time.Duration
 import java.util.*
 import kotlin.concurrent.thread
 import kotlin.reflect.KMutableProperty1
@@ -24,6 +28,7 @@ enum class TestDB(
     val afterTestFinished: () -> Unit = {},
     val dbConfig: DatabaseConfig.Builder.() -> Unit = {}
 ) {
+
     H2({ "jdbc:h2:mem:regular;DB_CLOSE_DELAY=-1;" }, "org.h2.Driver", dbConfig = {
         defaultIsolationLevel = Connection.TRANSACTION_READ_COMMITTED
     }),
@@ -36,6 +41,10 @@ enum class TestDB(
             }
         }
     ),
+    H2_MARIADB({ "jdbc:h2:mem:mariadb;MODE=MariaDB;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1" }, "org.h2.Driver"),
+    H2_PSQL({ "jdbc:h2:mem:psql;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1" }, "org.h2.Driver"),
+    H2_ORACLE({ "jdbc:h2:mem:oracle;MODE=Oracle;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1" }, "org.h2.Driver"),
+    H2_SQLSERVER({ "jdbc:h2:mem:sqlserver;MODE=MSSQLServer;DB_CLOSE_DELAY=-1" }, "org.h2.Driver"),
     SQLITE({ "jdbc:sqlite:file:test?mode=memory&cache=shared" }, "org.sqlite.JDBC"),
     MYSQL(
         connection = {
@@ -56,11 +65,11 @@ enum class TestDB(
         afterTestFinished = { if (runTestContainersMySQL()) mySQLProcess.close() }
     ),
     POSTGRESQL(
-        { "jdbc:postgresql://localhost:12346/template1?user=postgres&password=&lc_messages=en_US.UTF-8" }, "org.postgresql.Driver",
+        { "${postgresSQLProcess.jdbcUrl}&user=postgres&password=&lc_messages=en_US.UTF-8" }, "org.postgresql.Driver",
         beforeConnection = { postgresSQLProcess }, afterTestFinished = { postgresSQLProcess.close() }
     ),
     POSTGRESQLNG(
-        { "jdbc:pgsql://localhost:12346/template1?user=postgres&password=" }, "com.impossibl.postgres.jdbc.PGDriver",
+        { "${postgresSQLProcess.jdbcUrl.replaceFirst(":postgresql:", ":pgsql:")}&user=postgres&password=" }, "com.impossibl.postgres.jdbc.PGDriver",
         user = "postgres", beforeConnection = { postgresSQLProcess }, afterTestFinished = { postgresSQLProcess.close() }
     ),
     ORACLE(
@@ -72,11 +81,11 @@ enum class TestDB(
         beforeConnection = {
             Locale.setDefault(Locale.ENGLISH)
             val tmp = Database.connect(ORACLE.connection(), user = "sys as sysdba", password = "Oracle18", driver = ORACLE.driver)
-            transaction(Connection.TRANSACTION_READ_COMMITTED, 1, tmp) {
+            transaction(Connection.TRANSACTION_READ_COMMITTED, 1, db  = tmp) {
                 try {
                     exec("DROP USER ExposedTest CASCADE")
                 } catch (e: Exception) { // ignore
-                    exposedLogger.warn("Exception on deleting ExposedTest user", e)
+                    exposedLogger.warn("Exception on deleting ExposedTest user")
                 }
                 exec("CREATE USER ExposedTest ACCOUNT UNLOCK IDENTIFIED BY 12345")
                 exec("grant all privileges to ExposedTest")
@@ -116,7 +125,7 @@ enum class TestDB(
             var dbInitialized = false
             repeat(10) {
                 if (!dbInitialized) {
-                    transaction(Connection.TRANSACTION_READ_COMMITTED, 1, tmp) {
+                    transaction(Connection.TRANSACTION_READ_COMMITTED, 1, db = tmp) {
                         try {
                             exec("SELECT 1 FROM SYSIBM.SYSDUMMY1")
                             dbInitialized = true
@@ -145,6 +154,7 @@ enum class TestDB(
     }
 
     companion object {
+        val allH2TestDB = listOf(H2, H2_MYSQL, H2_PSQL, H2_MARIADB, H2_ORACLE, H2_SQLSERVER)
         fun enabledInTests(): Set<TestDB> {
             val concreteDialects = System.getProperty("exposed.test.dialects", "")
                 .split(",")
@@ -157,18 +167,27 @@ enum class TestDB(
 private val registeredOnShutdown = HashSet<TestDB>()
 
 private val postgresSQLProcess by lazy {
-    EmbeddedPostgres.builder()
-        .setPgBinaryResolver { system, _ ->
-            EmbeddedPostgres::class.java.getResourceAsStream("/postgresql-$system-x86_64.txz")
+    PostgreSQLContainer("postgres:13.8-alpine")
+        .withUsername("postgres")
+        .withPassword("")
+        .withDatabaseName("template1")
+        .withStartupTimeout(Duration.ofSeconds(60))
+        .withEnv("POSTGRES_HOST_AUTH_METHOD", "trust")
+        .apply {
+            listOf(
+                "timezone=UTC",
+                "synchronous_commit=off",
+                "max_connections=300",
+                "fsync=off"
+            ).forEach{
+                setCommand("postgres", "-c", it)
+            }
+            start()
         }
-        .setPort(12346).start()
 }
 
-// MySQLContainer has to be extended, otherwise it leads to Kotlin compiler issues: https://github.com/testcontainers/testcontainers-java/issues/318
-internal class SpecifiedMySQLContainer(val image: String) : MySQLContainer<SpecifiedMySQLContainer>(image)
-
 private val mySQLProcess by lazy {
-    SpecifiedMySQLContainer(image = "mysql:5")
+    MySQLContainer("mysql:5")
         .withDatabaseName("testdb")
         .withEnv("MYSQL_ROOT_PASSWORD", "test")
         .withExposedPorts().apply {
@@ -179,10 +198,18 @@ private val mySQLProcess by lazy {
 private fun runTestContainersMySQL(): Boolean =
     (System.getProperty("exposed.test.mysql.host") ?: System.getProperty("exposed.test.mysql8.host")).isNullOrBlank()
 
+internal var currentTestDB by nullableTransactionScope<TestDB>()
+
 @Suppress("UnnecessaryAbstractClass")
 abstract class DatabaseTestsBase {
     init {
         TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+    }
+
+    private object CurrentTestDBInterceptor : StatementInterceptor {
+        override fun keepUserDataInTransactionStoreOnCommit(userData: Map<Key<*>, Any?>): Map<Key<*>, Any?> {
+            return userData.filterValues { it is TestDB }
+        }
     }
 
     fun withDb(dbSettings: TestDB, statement: Transaction.(TestDB) -> Unit) {
@@ -206,9 +233,16 @@ abstract class DatabaseTestsBase {
         }
 
         val database = dbSettings.db!!
-
-        transaction(database.transactionManager.defaultIsolationLevel, 1, db = database) {
-            statement(dbSettings)
+        try {
+            transaction(database.transactionManager.defaultIsolationLevel, 1, db = database) {
+                registerInterceptor(CurrentTestDBInterceptor)
+                currentTestDB = dbSettings
+                statement(dbSettings)
+            }
+        } catch (e: SQLException) {
+            throw e
+        } catch (e: Exception) {
+            throw Exception("Failed on ${dbSettings.name}", e)
         }
     }
 
@@ -255,14 +289,16 @@ abstract class DatabaseTestsBase {
         Assume.assumeTrue(toTest.isNotEmpty())
         toTest.forEach { testDB ->
             withDb(testDB) {
-                SchemaUtils.createSchema(*schemas)
-                try {
-                    statement()
-                    commit() // Need commit to persist data before drop schemas
-                } finally {
-                    val cascade = it != TestDB.SQLSERVER
-                    SchemaUtils.dropSchema(*schemas, cascade = cascade)
-                    commit()
+                if (currentDialectTest.supportsCreateSchema) {
+                    SchemaUtils.createSchema(*schemas)
+                    try {
+                        statement()
+                        commit() // Need commit to persist data before drop schemas
+                    } finally {
+                        val cascade = it != TestDB.SQLSERVER
+                        SchemaUtils.dropSchema(*schemas, cascade = cascade)
+                        commit()
+                    }
                 }
             }
         }
@@ -278,5 +314,9 @@ abstract class DatabaseTestsBase {
         "IF NOT EXISTS "
     } else {
         ""
+    }
+
+    protected fun prepareSchemaForTest(schemaName: String) : Schema {
+        return Schema(schemaName, defaultTablespace = "USERS", temporaryTablespace = "TEMP ", quota = "20M", on = "USERS")
     }
 }

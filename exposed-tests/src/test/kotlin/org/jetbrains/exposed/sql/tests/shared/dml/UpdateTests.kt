@@ -4,6 +4,7 @@ import org.jetbrains.exposed.crypt.Algorithms
 import org.jetbrains.exposed.crypt.encryptedBinary
 import org.jetbrains.exposed.crypt.encryptedVarchar
 import org.jetbrains.exposed.dao.id.IntIdTable
+import org.jetbrains.exposed.dao.id.LongIdTable
 import org.jetbrains.exposed.exceptions.UnsupportedByDialectException
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.tests.DatabaseTestsBase
@@ -16,7 +17,7 @@ import java.lang.IllegalArgumentException
 
 class UpdateTests : DatabaseTestsBase() {
     private val notSupportLimit by lazy {
-        val exclude = arrayListOf(TestDB.POSTGRESQL, TestDB.POSTGRESQLNG)
+        val exclude = arrayListOf(TestDB.POSTGRESQL, TestDB.POSTGRESQLNG, TestDB.H2_PSQL)
         if (!SQLiteDialect.ENABLE_UPDATE_DELETE_LIMIT) {
             exclude.add(TestDB.SQLITE)
         }
@@ -70,9 +71,8 @@ class UpdateTests : DatabaseTestsBase() {
     }
 
     @Test
-    fun testUpdateWithJoin() {
-        val dialects = listOf(TestDB.SQLITE, TestDB.DB2)
-        withCitiesAndUsers(dialects) { cities, users, userData ->
+    fun testUpdateWithJoin01() {
+        withCitiesAndUsers(exclude = listOf(TestDB.SQLITE, TestDB.DB2)) { _, users, userData ->
             val join = users.innerJoin(userData)
             join.update {
                 it[userData.comment] = users.name
@@ -82,6 +82,59 @@ class UpdateTests : DatabaseTestsBase() {
             join.selectAll().forEach {
                 assertEquals(it[users.name], it[userData.comment])
                 assertEquals(123, it[userData.value])
+            }
+        }
+    }
+    @Test
+    fun testUpdateWithJoin02() {
+        withCitiesAndUsers(exclude = TestDB.allH2TestDB + TestDB.SQLITE + TestDB.DB2) { cities, users, userData ->
+            val join = cities.innerJoin(users).innerJoin(userData)
+            join.update {
+                it[userData.comment] = users.name
+                it[userData.value] = 123
+            }
+
+            join.selectAll().forEach {
+                assertEquals(it[users.name], it[userData.comment])
+                assertEquals(123, it[userData.value])
+            }
+        }
+    }
+
+    @Test
+    fun testUpdateWithJoinAndWhere() {
+        val tableA = object : LongIdTable("test_table_a") {
+            val foo = varchar("foo", 255)
+        }
+        val tableB = object : LongIdTable("test_table_b") {
+            val bar = varchar("bar", 255)
+            val tableAId = reference("table_a_id", tableA)
+        }
+
+        val supportWhere = TestDB.values().toList() - TestDB.allH2TestDB - TestDB.SQLITE + TestDB.H2_ORACLE
+
+        withTables(tableA, tableB) { testingDb ->
+            val aId = tableA.insertAndGetId { it[foo] = "foo" }
+            tableB.insert {
+                it[bar] = "zip"
+                it[tableAId] = aId
+            }
+
+            val join = tableA.innerJoin(tableB)
+
+            if (testingDb in supportWhere) {
+                join.update({ tableA.foo eq "foo" }) {
+                    it[tableB.bar] = "baz"
+                }
+                join.selectAll().single().also {
+                    assertEquals("baz", it[tableB.bar])
+                }
+            } else {
+                expectException<UnsupportedByDialectException> {
+                    join.update({ tableA.foo eq "foo" }) {
+                        it[tableB.bar] = "baz"
+                    }
+                }
             }
         }
     }

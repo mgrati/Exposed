@@ -1,10 +1,7 @@
 package org.jetbrains.exposed.sql
 
 import org.jetbrains.exposed.sql.transactions.TransactionManager
-import org.jetbrains.exposed.sql.vendors.DB2Dialect
-import org.jetbrains.exposed.sql.vendors.MysqlDialect
-import org.jetbrains.exposed.sql.vendors.OracleDialect
-import org.jetbrains.exposed.sql.vendors.currentDialect
+import org.jetbrains.exposed.sql.vendors.*
 import org.jetbrains.exposed.sql.vendors.currentDialectIfAvailable
 import org.jetbrains.exposed.sql.vendors.inProperCase
 import java.sql.DatabaseMetaData
@@ -107,7 +104,9 @@ data class ForeignKeyConstraint(
     /** Name of this constraint. */
     val fkName: String
         get() = tx.db.identifierManager.cutIfNecessaryAndQuote(
-            name ?: "fk_${fromTable.tableNameWithoutScheme}_${from.joinToString("_") { it.name }}__${target.joinToString("_") { it.name }}"
+            name ?: "fk_${fromTable.tableNameWithoutSchemeSanitized}_${
+                from.joinToString("_") { it.name }
+            }__${target.joinToString("_") { it.name }}"
         ).inProperCase()
     internal val foreignKeyPart: String
         get() = buildString {
@@ -119,16 +118,12 @@ data class ForeignKeyConstraint(
                 append(" ON DELETE $deleteRule")
             }
             if (updateRule != ReferenceOption.NO_ACTION) {
-                when  {
-                    currentDialect is OracleDialect -> {
-                        exposedLogger.warn("Oracle doesn't support FOREIGN KEY with ON UPDATE clause. Please check your $fromTableName table.")
-                    }
-                    currentDialect is DB2Dialect && updateRule == ReferenceOption.CASCADE -> {
-                        exposedLogger.warn("DB2 doesn't support FOREIGN KEY with ON UPDATE clause. Please check your $fromTableName table.")
-                    }
-                    else -> {
-                        append(" ON UPDATE $updateRule")
-                    }
+                if (currentDialect is OracleDialect || currentDialect.h2Mode == H2Dialect.H2CompatibilityMode.Oracle) {
+                    exposedLogger.warn("Oracle doesn't support FOREIGN KEY with ON UPDATE clause. Please check your $fromTableName table.")
+                } else if (currentDialect is DB2Dialect && updateRule == ReferenceOption.CASCADE) {
+                    exposedLogger.warn("DB2 doesn't support FOREIGN KEY with ON UPDATE clause. Please check your $fromTableName table.")
+                } else {
+                    append(" ON UPDATE $updateRule")
                 }
             }
         }

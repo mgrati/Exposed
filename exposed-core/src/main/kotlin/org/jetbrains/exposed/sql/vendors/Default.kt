@@ -1,13 +1,13 @@
 package org.jetbrains.exposed.sql.vendors
 
+import org.jetbrains.exposed.exceptions.UnsupportedByDialectException
 import org.jetbrains.exposed.exceptions.throwUnsupportedException
 import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.Function
 import org.jetbrains.exposed.sql.transactions.TransactionManager
 import java.nio.ByteBuffer
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.collections.HashMap
-import kotlin.collections.LinkedHashSet
 
 /**
  * Provides definitions for all the supported SQL data types.
@@ -55,8 +55,18 @@ abstract class DataTypeProvider {
 
     // Character types
 
-    /** Character type for storing strings of variable and _unlimited_ length. */
+    /** Character type for storing strings of variable length up to a maximum. */
+    open fun varcharType(colLength: Int): String = "VARCHAR($colLength)"
+
+    /** Character type for storing strings of variable length.
+     * Some database (postgresql) use the same data type name to provide virtually _unlimited_ length. */
     open fun textType(): String = "TEXT"
+
+    /** Character type for storing strings of _medium_ length. */
+    open fun mediumTextType(): String = "TEXT"
+
+    /** Character type for storing strings of variable and _large_ length. */
+    open fun largeTextType(): String = "TEXT"
 
     // Binary data types
 
@@ -99,6 +109,7 @@ abstract class DataTypeProvider {
     /** Returns the SQL representation of the specified expression, for it to be used as a column default value. */
     open fun processForDefaultValue(e: Expression<*>): String = when {
         e is LiteralOp<*> -> "$e"
+        e is Function<*> -> "$e"
         currentDialect is MysqlDialect -> "$e"
         currentDialect is SQLServerDialect -> "$e"
         else -> "($e)"
@@ -138,6 +149,16 @@ abstract class FunctionProvider {
     open fun random(seed: Int?): String = "RANDOM(${seed?.toString().orEmpty()})"
 
     // String functions
+
+    /**
+     * SQL function that returns the length of [expr], measured in characters, or `null` if [expr] is null.
+     *
+     * @param expr String expression to count characters in.
+     * @param queryBuilder Query builder to append the SQL function to.
+     */
+    open fun <T : String?> charLength(expr: Expression<T>, queryBuilder: QueryBuilder): Unit = queryBuilder {
+        append("CHAR_LENGTH(", expr, ")")
+    }
 
     /**
      * SQL function that extracts a substring from the specified string expression.
@@ -196,6 +217,22 @@ abstract class FunctionProvider {
             append(" SEPARATOR '$it'")
         }
         append(")")
+    }
+
+    /**
+     * SQL function that returns the index of the first occurrence of the given substring [substring]
+     * in the string expression [expr]
+     *
+     * @param queryBuilder Query builder to append the SQL function to.
+     * @param expr String expression to find the substring in.
+     * @param substring: Substring to find
+     * @return index of the first occurrence of [substring] in [expr] starting from 1
+     * or 0 if [expr] doesn't contain [substring]
+     */
+    open fun <T : String?> locate(queryBuilder: QueryBuilder, expr: Expression<T>, substring: String) {
+        throw UnsupportedByDialectException(
+            "There's no generic SQL for LOCATE. There must be vendor specific implementation.", currentDialect
+        )
     }
 
     // Pattern matching
@@ -329,7 +366,7 @@ abstract class FunctionProvider {
      * SQL function that casts an expression to a specific type.
      *
      * @param expr Expression to cast.
-     * @param type Type to cast hte expression to.
+     * @param type Type to cast the expression to.
      * @param builder Query builder to append the SQL function to.
      */
     open fun cast(
@@ -341,7 +378,7 @@ abstract class FunctionProvider {
     }
 
     // Commands
-
+    @Suppress("VariableNaming")
     open val DEFAULT_VALUE_EXPRESSION: String = "DEFAULT VALUES"
 
     /**
@@ -431,6 +468,26 @@ abstract class FunctionProvider {
         where: Op<Boolean>?,
         transaction: Transaction
     ): String = transaction.throwUnsupportedException("UPDATE with a join clause is unsupported")
+
+    protected fun QueryBuilder.appendJoinPartForUpdateClause(tableToUpdate: Table, targets: Join, transaction: Transaction) {
+        +" FROM "
+        val joinPartsToAppend = targets.joinParts.filter { it.joinPart != tableToUpdate }
+        if (targets.table != tableToUpdate) {
+            targets.table.describe(transaction, this)
+            if (joinPartsToAppend.isNotEmpty()) {
+                +", "
+            }
+        }
+
+        joinPartsToAppend.appendTo(this, ", ") {
+            it.joinPart.describe(transaction, this)
+        }
+
+        +" WHERE "
+        targets.joinParts.appendTo(this, " AND ") {
+            it.appendConditions(this)
+        }
+    }
 
     /**
      * Returns the SQL command that insert a new row into a table, but if another row with the same primary/unique key already exists then it updates the values of that row instead.
@@ -564,6 +621,11 @@ interface DatabaseDialect {
 
     val supportsOrderByNullsFirstLast: Boolean get() = false
 
+    val likePatternSpecialChars: Map<Char, Char?> get() = defaultLikePatternSpecialChars
+
+    /** Returns true if autoCommit should be enabled to create/drop database */
+    val requiresAutoCommitOnCreateDrop: Boolean get() = false
+
     /** Returns the name of the current database. */
     fun getDatabase(): String
 
@@ -632,6 +694,75 @@ interface DatabaseDialect {
             append(" CASCADE")
         }
     }
+
+    companion object {
+        private val defaultLikePatternSpecialChars = mapOf('%' to null, '_' to null)
+    }
+}
+
+sealed class ForUpdateOption(open val querySuffix: String) {
+
+    internal object NoForUpdateOption : ForUpdateOption("") {
+        override val querySuffix: String get() = error("querySuffix should not be called for NoForUpdateOption object")
+    }
+
+    object ForUpdate : ForUpdateOption("FOR UPDATE")
+
+    // https://dev.mysql.com/doc/refman/8.0/en/innodb-locking-reads.html for clarification
+    object MySQL {
+        object ForShare : ForUpdateOption("FOR SHARE")
+
+        object LockInShareMode : ForUpdateOption("LOCK IN SHARE MODE")
+    }
+
+    // https://mariadb.com/kb/en/select/#lock-in-share-modefor-update
+    object MariaDB {
+        object LockInShareMode : ForUpdateOption("LOCK IN SHARE MODE")
+    }
+
+    // https://www.postgresql.org/docs/current/sql-select.html
+    // https://www.postgresql.org/docs/12/explicit-locking.html#LOCKING-ROWS for clarification
+    object PostgreSQL {
+        enum class MODE(val statement: String) {
+            NO_WAIT("NOWAIT"), SKIP_LOCKED("SKIP LOCKED")
+        }
+
+        abstract class ForUpdateBase(querySuffix: String, private val mode: MODE? = null, private vararg val ofTables: Table) : ForUpdateOption("") {
+            private val preparedQuerySuffix = buildString {
+                append(querySuffix)
+                ofTables.takeIf { it.isNotEmpty() }?.let { tables ->
+                    append(" OF ")
+                    tables.joinTo(this, separator = ",") { it.tableName }
+                }
+                mode?.let {
+                    append(" ${it.statement}")
+                }
+            }
+            final override val querySuffix: String = preparedQuerySuffix
+        }
+
+        class ForUpdate(mode: MODE? = null, vararg ofTables: Table) : ForUpdateBase("FOR UPDATE", mode, *ofTables)
+
+
+        open class ForNoKeyUpdate(mode: MODE? = null, vararg ofTables: Table) : ForUpdateBase("FOR NO KEY UPDATE", mode, *ofTables) {
+            companion object : ForNoKeyUpdate()
+        }
+
+        open class ForShare(mode: MODE? = null, vararg ofTables: Table) : ForUpdateBase("FOR SHARE", mode, *ofTables) {
+            companion object : ForShare()
+        }
+
+        open class ForKeyShare(mode: MODE? = null, vararg ofTables: Table) : ForUpdateBase("FOR KEY SHARE", mode, *ofTables) {
+            companion object : ForKeyShare()
+        }
+    }
+
+    // https://docs.oracle.com/cd/B19306_01/server.102/b14200/statements_10002.htm#i2066346
+    object Oracle {
+        object ForUpdateNoWait : ForUpdateOption("FOR UPDATE NOWAIT")
+
+        class ForUpdateWait(timeout: Int) : ForUpdateOption("FOR UPDATE WAIT $timeout")
+    }
 }
 
 /**
@@ -642,6 +773,8 @@ abstract class VendorDialect(
     override val dataTypeProvider: DataTypeProvider,
     override val functionProvider: FunctionProvider
 ) : DatabaseDialect {
+
+    abstract class DialectNameProvider(val dialectName: String)
 
     /* Cached values */
     private var _allTableNames: Map<String, List<String>>? = null

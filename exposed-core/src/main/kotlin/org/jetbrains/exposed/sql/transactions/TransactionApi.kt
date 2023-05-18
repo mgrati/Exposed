@@ -3,7 +3,6 @@ package org.jetbrains.exposed.sql.transactions
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.Transaction
 import org.jetbrains.exposed.sql.statements.api.ExposedConnection
-import java.sql.Connection
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicReference
@@ -16,6 +15,8 @@ interface TransactionInterface {
 
     val transactionIsolation: Int
 
+    val readOnly: Boolean
+
     val outerTransaction: Transaction?
 
     fun commit()
@@ -25,15 +26,14 @@ interface TransactionInterface {
     fun close()
 }
 
-@Deprecated("There is no single default level for all databases, please don't use that constant")
-const val DEFAULT_ISOLATION_LEVEL = Connection.TRANSACTION_REPEATABLE_READ
-
 private object NotInitializedManager : TransactionManager {
     override var defaultIsolationLevel: Int = -1
 
+    override var defaultReadOnly: Boolean = false
+
     override var defaultRepetitionAttempts: Int = -1
 
-    override fun newTransaction(isolation: Int, outerTransaction: Transaction?): Transaction =
+    override fun newTransaction(isolation: Int, readOnly: Boolean, outerTransaction: Transaction?): Transaction =
         error("Please call Database.connect() before using this code")
 
     override fun currentOrNull(): Transaction = error("Please call Database.connect() before using this code")
@@ -47,9 +47,15 @@ interface TransactionManager {
 
     var defaultIsolationLevel: Int
 
+    var defaultReadOnly: Boolean
+
     var defaultRepetitionAttempts: Int
 
-    fun newTransaction(isolation: Int = defaultIsolationLevel, outerTransaction: Transaction? = null): Transaction
+    fun newTransaction(
+        isolation: Int = defaultIsolationLevel,
+        readOnly: Boolean = defaultReadOnly,
+        outerTransaction: Transaction? = null
+    ): Transaction
 
     fun currentOrNull(): Transaction?
 
@@ -83,7 +89,7 @@ interface TransactionManager {
                 registeredDatabases.remove(database)
                 databases.remove(database)
                 currentDefaultDatabase.compareAndSet(database, null)
-                if (currentThreadManager.get() == it) {
+                if (currentThreadManager.isInitialized && currentThreadManager.get() == it) {
                     currentThreadManager.remove()
                 }
             }
@@ -91,11 +97,26 @@ interface TransactionManager {
 
         fun managerFor(database: Database?) = if (database != null) registeredDatabases[database] else manager
 
-        private val currentThreadManager = object : ThreadLocal<TransactionManager>() {
+        private class TransactionManagerThreadLocal : ThreadLocal<TransactionManager>() {
+            var isInitialized = false
+
             override fun initialValue(): TransactionManager {
+                isInitialized = true
                 return defaultDatabase?.let { registeredDatabases.getValue(it) } ?: NotInitializedManager
             }
+
+            override fun set(value: TransactionManager?) {
+                isInitialized = true
+                super.set(value)
+            }
+
+            override fun remove() {
+                isInitialized = false
+                super.remove()
+            }
         }
+
+        private val currentThreadManager = TransactionManagerThreadLocal()
 
         val manager: TransactionManager
             get() = currentThreadManager.get()
@@ -114,6 +135,7 @@ interface TransactionManager {
     }
 }
 
+@Suppress("TooGenericExceptionCaught")
 internal fun TransactionInterface.rollbackLoggingException(log: (Exception) -> Unit) {
     try {
         rollback()
@@ -122,6 +144,7 @@ internal fun TransactionInterface.rollbackLoggingException(log: (Exception) -> U
     }
 }
 
+@Suppress("TooGenericExceptionCaught")
 internal inline fun TransactionInterface.closeLoggingException(log: (Exception) -> Unit) {
     try {
         close()

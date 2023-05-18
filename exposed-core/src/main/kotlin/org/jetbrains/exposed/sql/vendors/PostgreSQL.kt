@@ -16,7 +16,6 @@ internal object PostgreSQLDataTypeProvider : DataTypeProvider() {
         exposedLogger.warn("The length of the binary column is not required.")
         return binaryType()
     }
-
     override fun blobType(): String = "bytea"
     override fun uuidToDB(value: UUID): Any = value
     override fun dateTimeType(): String = "TIMESTAMP"
@@ -45,6 +44,18 @@ internal object PostgreSQLFunctionProvider : FunctionProvider() {
                 append(")")
             }
         }
+    }
+
+    /**
+     * Implementation of [FunctionProvider.locate]
+     * Note: search is case-sensitive
+     * */
+    override fun <T : String?> locate(
+        queryBuilder: QueryBuilder,
+        expr: Expression<T>,
+        substring: String
+    ) = queryBuilder {
+        append("POSITION(\'", substring, "\' IN ", expr, ")")
     }
 
     override fun <T : String?> regexp(
@@ -146,18 +157,9 @@ internal object PostgreSQLFunctionProvider : FunctionProvider() {
             append("${transaction.identity(col)}=")
             registerArgument(col, value)
         }
-        +" FROM "
-        if (targets.table != tableToUpdate)
-            targets.table.describe(transaction, this)
 
-        targets.joinParts.appendTo(this, ",") {
-            if (it.joinPart != tableToUpdate)
-                it.joinPart.describe(transaction, this)
-        }
-        +" WHERE "
-        targets.joinParts.appendTo(this, " AND ") {
-            it.appendConditions(this)
-        }
+        appendJoinPartForUpdateClause(tableToUpdate, targets, transaction)
+
         where?.let {
             +" AND "
             +it
@@ -211,6 +213,8 @@ internal object PostgreSQLFunctionProvider : FunctionProvider() {
 open class PostgreSQLDialect : VendorDialect(dialectName, PostgreSQLDataTypeProvider, PostgreSQLFunctionProvider) {
     override val supportsOrderByNullsFirstLast: Boolean = true
 
+    override val requiresAutoCommitOnCreateDrop: Boolean = true
+
     override fun isAllowedAsColumnDefault(e: Expression<*>): Boolean = true
 
     override fun modifyColumn(column: Column<*>, columnDiff: ColumnDiff): List<String> = listOf(buildString {
@@ -232,7 +236,7 @@ open class PostgreSQLDialect : VendorDialect(dialectName, PostgreSQLDataTypeProv
             column.dbDefaultValue?.let {
                 append(", ALTER COLUMN $colName SET DEFAULT ${PostgreSQLDataTypeProvider.processForDefaultValue(it)}")
             } ?: run {
-                ",  ALTER COLUMN $colName DROP DEFAULT"
+                append(",  ALTER COLUMN $colName DROP DEFAULT")
             }
         }
     })
@@ -247,10 +251,7 @@ open class PostgreSQLDialect : VendorDialect(dialectName, PostgreSQLDataTypeProv
         return "CREATE INDEX $name ON $table USING $type $columns"
     }
 
-    companion object {
-        /** PostgreSQL dialect name */
-        const val dialectName: String = "postgresql"
-    }
+    companion object : DialectNameProvider("postgresql")
 }
 
 /**
@@ -259,8 +260,7 @@ open class PostgreSQLDialect : VendorDialect(dialectName, PostgreSQLDataTypeProv
  * The driver accepts basic URLs in the following format : jdbc:pgsql://localhost:5432/db
  */
 open class PostgreSQLNGDialect : PostgreSQLDialect() {
-    companion object {
-        /** PostgreSQL-NG dialect name */
-        const val dialectName: String = "pgsql"
-    }
+    override val requiresAutoCommitOnCreateDrop: Boolean = true
+
+    companion object : DialectNameProvider("pgsql")
 }

@@ -1,9 +1,10 @@
 package org.jetbrains.exposed.sql.tests.shared.ddl
 
-import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.tests.DatabaseTestsBase
 import org.jetbrains.exposed.sql.tests.TestDB
 import org.junit.Test
+import java.sql.SQLException
 
 class CreateDatabaseTest : DatabaseTestsBase() {
 
@@ -13,6 +14,11 @@ class CreateDatabaseTest : DatabaseTestsBase() {
         // DB2:create database in db2 is a clp command, thus it cannot run in jdbc
         withDb(excludeSettings = listOf(TestDB.POSTGRESQL, TestDB.POSTGRESQLNG, TestDB.DB2)) {
             val dbName = "jetbrains"
+            try {
+                SchemaUtils.dropDatabase(dbName)
+            } catch (e: SQLException) {
+                //ignore
+            }
             SchemaUtils.createDatabase(dbName)
             SchemaUtils.dropDatabase(dbName)
         }

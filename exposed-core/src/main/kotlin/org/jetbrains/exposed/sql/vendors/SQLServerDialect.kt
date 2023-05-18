@@ -25,6 +25,8 @@ internal object SQLServerDataTypeProvider : DataTypeProvider() {
      * https://docs.microsoft.com/en-us/sql/t-sql/data-types/ntext-text-and-image-transact-sql?view=sql-server-ver15
      */
     override fun textType(): String = "VARCHAR(MAX)"
+    override fun mediumTextType(): String = textType()
+    override fun largeTextType(): String = textType()
 
     override fun precessOrderByClause(queryBuilder: QueryBuilder, expression: Expression<*>, sortOrder: SortOrder) {
         when (sortOrder) {
@@ -46,7 +48,6 @@ internal object SQLServerDataTypeProvider : DataTypeProvider() {
             }
         }
     }
-
 }
 
 internal object SQLServerFunctionProvider : FunctionProvider() {
@@ -55,6 +56,10 @@ internal object SQLServerFunctionProvider : FunctionProvider() {
     }
 
     override fun random(seed: Int?): String = if (seed != null) "RAND($seed)" else "RAND(CHECKSUM(NEWID()))"
+
+    override fun <T : String?> charLength(expr: Expression<T>, queryBuilder: QueryBuilder) = queryBuilder {
+        append("LEN(", expr, ")")
+    }
 
     override fun <T : String?> groupConcat(expr: GroupConcat<T>, queryBuilder: QueryBuilder) {
         val tr = TransactionManager.current()
@@ -70,6 +75,14 @@ internal object SQLServerFunctionProvider : FunctionProvider() {
                 }
             }
         }
+    }
+
+    override fun <T : String?> locate(
+        queryBuilder: QueryBuilder,
+        expr: Expression<T>,
+        substring: String
+    ) = queryBuilder {
+        append("CHARINDEX(\'", substring, "\',", expr, ")")
     }
 
     override fun <T : String?> regexp(
@@ -138,20 +151,9 @@ internal object SQLServerFunctionProvider : FunctionProvider() {
             append("${transaction.fullIdentity(col)}=")
             registerArgument(col, value)
         }
-        +" FROM "
-        if (targets.table != tableToUpdate) {
-            targets.table.describe(transaction, this)
-        }
 
-        targets.joinParts.appendTo(this, ",") {
-            if (it.joinPart != tableToUpdate) {
-                it.joinPart.describe(transaction, this)
-            }
-        }
-        +" WHERE "
-        targets.joinParts.appendTo(this, " AND ") {
-            it.appendConditions(this)
-        }
+        appendJoinPartForUpdateClause(tableToUpdate, targets, transaction)
+
         where?.let {
             +" AND "
             +it
@@ -187,6 +189,8 @@ open class SQLServerDialect : VendorDialect(dialectName, SQLServerDataTypeProvid
         return columnDefault !in nonAcceptableDefaults
     }
 
+    // TODO: Fix changing default value on column as it requires to drop/create constraint
+    // https://stackoverflow.com/questions/15547210/modify-default-value-in-sql-server
     override fun modifyColumn(column: Column<*>, columnDiff: ColumnDiff): List<String> =
         super.modifyColumn(column, columnDiff).map { it.replace("MODIFY COLUMN", "ALTER COLUMN") }
 
@@ -213,8 +217,10 @@ open class SQLServerDialect : VendorDialect(dialectName, SQLServerDataTypeProvid
         return "CREATE $type INDEX $name ON $table $columns"
     }
 
-    companion object {
-        /** SQLServer dialect name */
-        const val dialectName: String = "sqlserver"
+    // https://docs.microsoft.com/en-us/sql/t-sql/language-elements/like-transact-sql?redirectedfrom=MSDN&view=sql-server-ver15#arguments
+    override val likePatternSpecialChars = sqlServerLikePatternSpecialChars
+
+    companion object : DialectNameProvider("sqlserver") {
+        private val sqlServerLikePatternSpecialChars = mapOf('%' to null, '_' to null, '[' to ']')
     }
 }

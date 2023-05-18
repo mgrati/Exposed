@@ -29,7 +29,7 @@ dependencies {
     implementation("net.sf.jt400", "jt400", Versions.as400db2)
 
     implementation("org.testcontainers", "mysql", Versions.testContainers)
-    implementation("com.opentable.components", "otj-pg-embedded", Versions.otjPgEmbedded)
+    implementation("org.testcontainers", "postgresql", Versions.testContainers)
     testCompileOnly("org.postgresql", "postgresql", Versions.postgre)
     testCompileOnly("com.impossibl.pgjdbc-ng", "pgjdbc-ng", Versions.postgreNG)
     compileOnly("com.h2database", "h2", Versions.h2)
@@ -37,7 +37,8 @@ dependencies {
 }
 
 tasks.withType<Test>().configureEach {
-    jvmArgs = listOf("-XX:MaxPermSize=256m")
+    if (JavaVersion.VERSION_1_8 > JavaVersion.current())
+        jvmArgs = listOf("-XX:MaxPermSize=256m")
     testLogging {
         events.addAll(listOf(TestLogEvent.PASSED, TestLogEvent.FAILED, TestLogEvent.SKIPPED))
         showStandardStreams = true

@@ -12,7 +12,7 @@ import java.util.*
 
 class ReplaceTests : DatabaseTestsBase() {
 
-    private val notSupportsReplace = listOf(TestDB.ORACLE, TestDB.SQLSERVER, TestDB.DB2)
+    private val notSupportsReplace = listOf(TestDB.ORACLE, TestDB.SQLSERVER, TestDB.H2_ORACLE, TestDB.H2_SQLSERVER, TestDB.DB2)
 
     // GitHub issue #98: Parameter index out of range when using Table.replace
     @Test
@@ -29,6 +29,21 @@ class ReplaceTests : DatabaseTestsBase() {
             NewAuth.replace {
                 it[username] = "username"
                 it[session] = "session".toByteArray()
+            }
+        }
+    }
+
+    @Test
+    fun testReplaceWithExpression() {
+        val NewAuth = object : Table("new_auth") {
+            val username = varchar("username", 16)
+            val password = varchar("password", 64)
+            override val primaryKey = PrimaryKey(username)
+        }
+        withTables(notSupportsReplace, NewAuth) {
+            NewAuth.replace {
+                it[username] = "username"
+                it[password] = stringLiteral("  password1 ").trim()
             }
         }
     }

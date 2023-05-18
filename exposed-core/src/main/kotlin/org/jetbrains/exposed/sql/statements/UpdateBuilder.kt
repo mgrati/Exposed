@@ -1,4 +1,4 @@
-@file:Suppress("internal")
+@file:Suppress("internal", "INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
 
 package org.jetbrains.exposed.sql.statements
 
@@ -11,6 +11,7 @@ import org.jetbrains.exposed.sql.Query
 import org.jetbrains.exposed.sql.SqlExpressionBuilder
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.wrapAsExpression
+import kotlin.internal.LowPriorityInOverloadResolution
 
 /**
  * @author max
@@ -26,6 +27,7 @@ abstract class UpdateBuilder<out T>(type: StatementType, targets: List<Table>) :
         require(!(values.containsKey(column) && hasBatchedValues)) { "$column is already initialized in a batch" }
     }
 
+    @LowPriorityInOverloadResolution
     open operator fun <S> set(column: Column<S>, value: S) {
         require(column.columnType.nullable || (value != null && value !is Op.NULL)) {
             "Trying to set null to not nullable column $column"
@@ -36,7 +38,16 @@ abstract class UpdateBuilder<out T>(type: StatementType, targets: List<Table>) :
     }
 
     @JvmName("setWithEntityIdValue")
-    operator fun <S : Comparable<S>, E : S, ID : EntityID<E>?> set(column: Column<ID>, value: S) {
+    operator fun <S : Comparable<S>, ID : EntityID<S>> set(column: Column<ID>, value: S) {
+        column.columnType.validateValueBeforeUpdate(value)
+        values[column] = value
+    }
+
+    @JvmName("setWithNullableEntityIdValue")
+    operator fun <S : Comparable<S>> set(column: Column<EntityID<S>?>, value: S?) {
+        require(column.columnType.nullable || value != null) {
+            "Trying to set null to not nullable column $column"
+        }
         column.columnType.validateValueBeforeUpdate(value)
         values[column] = value
     }
@@ -55,7 +66,7 @@ abstract class UpdateBuilder<out T>(type: StatementType, targets: List<Table>) :
 
     open operator fun <S> set(column: Column<S>, value: Query) = update(column, wrapAsExpression(value))
 
-    open operator fun <S : Any> set(column: CompositeColumn<S>, value: S) {
+    open operator fun <S> set(column: CompositeColumn<S>, value: S) {
         column.getRealColumnsWithValues(value).forEach { (realColumn, itsValue) -> set(realColumn as Column<Any?>, itsValue) }
     }
 

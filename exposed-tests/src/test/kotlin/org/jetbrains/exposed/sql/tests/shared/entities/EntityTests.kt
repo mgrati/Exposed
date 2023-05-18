@@ -7,6 +7,7 @@ import org.jetbrains.exposed.dao.id.IdTable
 import org.jetbrains.exposed.dao.id.IntIdTable
 import org.jetbrains.exposed.dao.id.LongIdTable
 import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.statements.api.ExposedBlob
 import org.jetbrains.exposed.sql.tests.DatabaseTestsBase
 import org.jetbrains.exposed.sql.tests.TestDB
@@ -575,7 +576,7 @@ class EntityTests : DatabaseTestsBase() {
     }
 
     private fun <T> newTransaction(statement: Transaction.() -> T) =
-        inTopLevelTransaction(TransactionManager.manager.defaultIsolationLevel, 1, null, null, statement)
+        inTopLevelTransaction(TransactionManager.manager.defaultIsolationLevel, 1, false, null, null, statement)
 
     @Test fun sharingEntityBetweenTransactions() {
         withTables(Humans) {
@@ -1268,8 +1269,8 @@ class EntityTests : DatabaseTestsBase() {
                 dateOfBirth = "01/01/2000"
             }
 
-            kotlin.test.assertEquals(bio1, student1.bio)
-            kotlin.test.assertEquals(bio1.student, student1)
+            assertEquals(bio1, student1.bio)
+            assertEquals(bio1.student, student1)
         }
     }
 
@@ -1316,6 +1317,30 @@ class EntityTests : DatabaseTestsBase() {
                 createBoardCalled,
                 "Expected createBoardCalled to be called"
             )
+        }
+    }
+
+    object RequestsTable : IdTable<String>() {
+        val requestId: Column<String> = varchar("requestId", 256)
+        override val primaryKey = PrimaryKey(requestId)
+        override val id: Column<EntityID<String>> = requestId.entityId()
+    }
+
+    class Request(id: EntityID<String>) : Entity<String>(id) {
+        companion object : EntityClass<String, Request>(RequestsTable)
+
+        var requestId by RequestsTable.requestId
+    }
+
+    @Test
+    fun testSelectFromStringIdTableWithPrimaryKeyByColumn() {
+        withTables(RequestsTable) {
+            Request.new {
+                requestId = "123"
+            }
+
+            val count = Request.all().count()
+            assertEquals(1, count)
         }
     }
 }

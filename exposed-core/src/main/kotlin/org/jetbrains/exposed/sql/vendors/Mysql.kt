@@ -12,7 +12,7 @@ internal object MysqlDataTypeProvider : DataTypeProvider() {
         error("The length of the Binary column is missing.")
     }
 
-    override fun dateTimeType(): String = if ((currentDialect as MysqlDialect).isFractionDateTimeSupported()) "DATETIME(6)" else "DATETIME"
+    override fun dateTimeType(): String = if ((currentDialect as? MysqlDialect)?.isFractionDateTimeSupported() == true) "DATETIME(6)" else "DATETIME"
 
     override fun ubyteType(): String = "TINYINT UNSIGNED"
 
@@ -22,9 +22,15 @@ internal object MysqlDataTypeProvider : DataTypeProvider() {
 
     override fun ulongType(): String = "BIGINT UNSIGNED"
 
-    override fun textType(): String = "longtext"
+    override fun textType(): String = "text"
 
-    override fun booleanFromStringToBoolean(value: String): Boolean = when(value) {
+    /** Character type for storing strings of variable and _unlimited_ length. */
+    override fun mediumTextType(): String = "MEDIUMTEXT"
+
+    /** Character type for storing strings of variable and _unlimited_ length. */
+    override fun largeTextType(): String = "LONGTEXT"
+
+    override fun booleanFromStringToBoolean(value: String): Boolean = when (value) {
         "0" -> false
         "1" -> true
         else -> value.toBoolean()
@@ -66,6 +72,14 @@ internal open class MysqlFunctionProvider : FunctionProvider() {
     override fun <T : String?> Expression<T>.match(pattern: String, mode: MatchMode?): Op<Boolean> =
         MATCH(this, pattern, mode ?: MysqlMatchMode.STRICT)
 
+    override fun <T : String?> locate(
+        queryBuilder: QueryBuilder,
+        expr: Expression<T>,
+        substring: String
+    ) = queryBuilder {
+        append("LOCATE(\'", substring, "\',", expr, ")")
+    }
+
     override fun <T : String?> regexp(
         expr1: Expression<T>,
         pattern: Expression<String>,
@@ -82,7 +96,7 @@ internal open class MysqlFunctionProvider : FunctionProvider() {
     override fun replace(table: Table, data: List<Pair<Column<*>, Any?>>, transaction: Transaction): String {
         val builder = QueryBuilder(true)
         val columns = data.joinToString { transaction.identity(it.first) }
-        val values = builder.apply { data.appendTo { registerArgument(it.first.columnType, it.second) } }.toString()
+        val values = builder.apply { data.appendTo { registerArgument(it.first, it.second) } }.toString()
         return "REPLACE INTO ${transaction.identity(table)} ($columns) VALUES ($values)"
     }
 
@@ -177,7 +191,8 @@ open class MysqlDialect : VendorDialect(dialectName, MysqlDataTypeProvider, Mysq
                   AND ku.CONSTRAINT_SCHEMA = $schemaName
                   AND rc.CONSTRAINT_SCHEMA = $schemaName
                   AND $inTableList
-                ORDER BY ku.ORDINAL_POSITION""".trimIndent()
+                ORDER BY ku.ORDINAL_POSITION
+            """.trimIndent()
         ) { rs ->
             while (rs.next()) {
                 val fromTableName = rs.getString("TABLE_NAME")!!
@@ -230,8 +245,5 @@ open class MysqlDialect : VendorDialect(dialectName, MysqlDataTypeProvider, Mysq
 
     override fun dropSchema(schema: Schema, cascade: Boolean): String = "DROP SCHEMA IF EXISTS ${schema.identifier}"
 
-    companion object {
-        /** MySQL dialect name */
-        const val dialectName: String = "mysql"
-    }
+    companion object : DialectNameProvider("mysql")
 }
